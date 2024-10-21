@@ -1,7 +1,7 @@
 import math
 import sys
 
-sys.path.append('./')
+sys.path.append("./")
 
 import os, argparse, glob, datetime, yaml
 import torch
@@ -17,33 +17,37 @@ from PIL import Image
 from lidm.models.diffusion.ddim import DDIMSampler
 from lidm.utils.misc_utils import instantiate_from_config, set_seed, isimage
 from lidm.utils.lidar_utils import range2pcd
-from lidm.modules.encoders.modules import FrozenCLIPTextEmbedder, FrozenClipMultiTextEmbedder
+from lidm.modules.encoders.modules import (
+    FrozenCLIPTextEmbedder,
+    FrozenClipMultiTextEmbedder,
+)
 
 # remove annoying user warnings
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-DATASET2METRICS = {'kitti': ['frid', 'fsvd', 'fpvd'], 'nuscenes': ['fsvd', 'fpvd']}
+DATASET2METRICS = {"kitti": ["frid", "fsvd", "fpvd"], "nuscenes": ["fsvd", "fpvd"]}
 
-custom_to_range = lambda x: (x * 255.).clamp(0, 255).floor() / 255.
+custom_to_range = lambda x: (x * 255.0).clamp(0, 255).floor() / 255.0
 
 
 def custom_to_pcd(x, config, rgb=None):
     x = x.squeeze().detach().cpu().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
     if rgb is not None:
         rgb = rgb.squeeze().detach().cpu().numpy()
-        rgb = (np.clip(rgb, -1., 1.) + 1.) / 2.
+        rgb = (np.clip(rgb, -1.0, 1.0) + 1.0) / 2.0
         rgb = rgb.transpose(1, 2, 0)
-    xyz, rgb, _ = range2pcd(x, color=rgb, **config['data']['params']['dataset'])
+    xyz, rgb, _ = range2pcd(x, color=rgb, **config["data"]["params"]["dataset"])
 
     return xyz, rgb
 
 
 def custom_to_pil(x):
     x = x.detach().cpu().squeeze().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
     x = (255 * x).astype(np.uint8)
 
     if x.ndim == 3:
@@ -55,8 +59,10 @@ def custom_to_pil(x):
 
 def custom_to_np(x):
     x = x.detach().cpu().squeeze().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
-    x = x.astype(np.float32)  # NOTE: use predicted continuous depth instead of np.uint8 depth
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
+    x = x.astype(
+        np.float32
+    )  # NOTE: use predicted continuous depth instead of np.uint8 depth
     return x
 
 
@@ -78,9 +84,13 @@ def logs2pil(logs, keys=["sample"]):
 
 
 @torch.no_grad()
-def convsample(model, cond, shape, return_intermediates=True, verbose=True, make_prog_row=False):
+def convsample(
+    model, cond, shape, return_intermediates=True, verbose=True, make_prog_row=False
+):
     if not make_prog_row:
-        return model.p_sample_loop(cond, shape, return_intermediates=return_intermediates, verbose=verbose)
+        return model.p_sample_loop(
+            cond, shape, return_intermediates=return_intermediates, verbose=verbose
+        )
     else:
         return model.progressive_denoising(cond, shape, verbose=verbose)
 
@@ -90,56 +100,94 @@ def convsample_ddim(model, cond, steps, shape, eta=1.0, verbose=False):
     ddim = DDIMSampler(model)
     bs = shape[0]
     shape = shape[1:]
-    samples, intermediates = ddim.sample(steps, conditioning=cond, batch_size=bs, shape=shape, eta=eta, verbose=verbose, disable_tqdm=True)
+    samples, intermediates = ddim.sample(
+        steps,
+        conditioning=cond,
+        batch_size=bs,
+        shape=shape,
+        eta=eta,
+        verbose=verbose,
+        disable_tqdm=True,
+    )
     return samples, intermediates
 
 
 @torch.no_grad()
-def make_convolutional_sample(model, cond, batch_size, vanilla=False, custom_steps=None, eta=1.0, verbose=False):
+def make_convolutional_sample(
+    model, cond, batch_size, vanilla=False, custom_steps=None, eta=1.0, verbose=False
+):
     log = dict()
-    shape = [batch_size,
-             model.model.diffusion_model.in_channels,
-             *model.model.diffusion_model.image_size]
+    shape = [
+        batch_size,
+        model.model.diffusion_model.in_channels,
+        *model.model.diffusion_model.image_size,
+    ]
 
     with model.ema_scope("Plotting"):
         t0 = time.time()
         if vanilla:
-            sample, progrow = convsample(model, cond, shape, make_prog_row=True, verbose=verbose)
+            sample, progrow = convsample(
+                model, cond, shape, make_prog_row=True, verbose=verbose
+            )
         else:
-            sample, intermediates = convsample_ddim(model, cond, custom_steps, shape, eta, verbose)
+            sample, intermediates = convsample_ddim(
+                model, cond, custom_steps, shape, eta, verbose
+            )
         t1 = time.time()
     x_sample = model.decode_first_stage(sample)
 
     log["sample"] = x_sample
     log["time"] = t1 - t0
-    log['throughput'] = sample.shape[0] / (t1 - t0)
+    log["throughput"] = sample.shape[0] / (t1 - t0)
     if verbose:
         print(f'Throughput for this batch: {log["throughput"]}')
     return log
 
 
-def run(model, text_encoder, prompt, imglogdir, pcdlogdir, custom_steps=50, batch_size=10, n_samples=50, config=None, verbose=False):
+def run(
+    model,
+    text_encoder,
+    prompt,
+    imglogdir,
+    pcdlogdir,
+    custom_steps=50,
+    batch_size=10,
+    n_samples=50,
+    config=None,
+    verbose=False,
+):
     tstart = time.time()
-    n_saved = len(glob.glob(os.path.join(imglogdir, '*.png')))
+    n_saved = len(glob.glob(os.path.join(imglogdir, "*.png")))
 
     all_samples = []
     print(f"Running conditional sampling")
-    for _ in trange(math.ceil(n_samples / batch_size), desc="Sampling Batches (unconditional)"):
+    for _ in trange(
+        math.ceil(n_samples / batch_size), desc="Sampling Batches (unconditional)"
+    ):
         with torch.no_grad():
             cond = text_encoder.encode(batch_size * [prompt])
             cond = model.cond_stage_model(cond)
         try:
-            logs = make_convolutional_sample(model, cond, batch_size, custom_steps=custom_steps, verbose=verbose)
+            logs = make_convolutional_sample(
+                model, cond, batch_size, custom_steps=custom_steps, verbose=verbose
+            )
         except Exception:
             import pdb as debugger
-            debugger.post_mortem()
-        n_saved = save_logs(logs, imglogdir, pcdlogdir, n_saved=n_saved, key="sample", config=config)
 
-    print(f"Sampling of {n_saved} images finished in {(time.time() - tstart) / 60.:.2f} minutes.")
+            debugger.post_mortem()
+        n_saved = save_logs(
+            logs, imglogdir, pcdlogdir, n_saved=n_saved, key="sample", config=config
+        )
+
+    print(
+        f"Sampling of {n_saved} images finished in {(time.time() - tstart) / 60.:.2f} minutes."
+    )
     return all_samples
 
 
-def save_logs(logs, imglogdir, pcdlogdir, n_saved=0, key="sample", np_path=None, config=None):
+def save_logs(
+    logs, imglogdir, pcdlogdir, n_saved=0, key="sample", np_path=None, config=None
+):
     batch = logs[key]
     if np_path is None:
         for x in batch:
@@ -150,7 +198,7 @@ def save_logs(logs, imglogdir, pcdlogdir, n_saved=0, key="sample", np_path=None,
             # save as point cloud
             xyz, rgb = custom_to_pcd(x, config)
             pcdpath = os.path.join(pcdlogdir, f"{key}_{n_saved:06}.txt")
-            np.savetxt(pcdpath, np.hstack([xyz, rgb]), fmt='%.6f')
+            np.savetxt(pcdpath, np.hstack([xyz, rgb]), fmt="%.6f")
             n_saved += 1
     return n_saved
 
@@ -163,7 +211,7 @@ def get_parser():
         type=str,
         nargs="?",
         help="load from logdir or checkpoint in logdir",
-        default="none"
+        default="none",
     )
     parser.add_argument(
         "-p",
@@ -171,7 +219,7 @@ def get_parser():
         type=str,
         nargs="?",
         default="walls surrounded",
-        help="the prompt to render"
+        help="the prompt to render",
     )
     parser.add_argument(
         "-n",
@@ -179,7 +227,7 @@ def get_parser():
         type=int,
         nargs="?",
         help="number of samples to draw",
-        default=50
+        default=50,
     )
     parser.add_argument(
         "-e",
@@ -187,21 +235,16 @@ def get_parser():
         type=float,
         nargs="?",
         help="eta for ddim sampling (0.0 yields deterministic sampling)",
-        default=1.0
+        default=1.0,
     )
     parser.add_argument(
         "--vanilla",
         default=False,
-        action='store_true',
+        action="store_true",
         help="vanilla sampling (default option is DDIM sampling)?",
     )
     parser.add_argument(
-        "-l",
-        "--logdir",
-        type=str,
-        nargs="?",
-        help="extra logdir",
-        default="none"
+        "-l", "--logdir", type=str, nargs="?", help="extra logdir", default="none"
     )
     parser.add_argument(
         "-c",
@@ -209,48 +252,35 @@ def get_parser():
         type=int,
         nargs="?",
         help="number of steps for ddim and fastdpm sampling",
-        default=50
+        default=50,
     )
     parser.add_argument(
-        "-b",
-        "--batch_size",
-        type=int,
-        nargs="?",
-        help="the bs",
-        default=10
+        "-b", "--batch_size", type=int, nargs="?", help="the bs", default=10
     )
     parser.add_argument(
-        "--num_views",
-        type=int,
-        nargs="?",
-        help="num of views",
-        default=4
+        "--num_views", type=int, nargs="?", help="num of views", default=4
     )
     parser.add_argument(
         "--apply_all",
         default=False,
-        action='store_true',
+        action="store_true",
         help="print status?",
     )
     parser.add_argument(
-        "-s",
-        "--seed",
-        type=int,
-        help="the numpy file path",
-        default=1000
+        "-s", "--seed", type=int, help="the numpy file path", default=1000
     )
     parser.add_argument(
         "-d",
         "--dataset",
         type=str,
         help="dataset name [nuscenes, kitti]",
-        required=True
+        required=True,
     )
     parser.add_argument(
         "-v",
         "--verbose",
         default=False,
-        action='store_true',
+        action="store_true",
         help="print status?",
     )
     return parser
@@ -288,7 +318,7 @@ def visualize(samples, logdir):
     for i, pcd in enumerate(samples):
         # save as point cloud
         pcdpath = os.path.join(pcdlogdir, f"{i:06}.txt")
-        np.savetxt(pcdpath, pcd, fmt='%.3f')
+        np.savetxt(pcdpath, pcd, fmt="%.3f")
 
 
 def test_collate_fn(data):
@@ -296,7 +326,7 @@ def test_collate_fn(data):
     keys = data[0].keys()
     for k in keys:
         v = [d[k] for d in data]
-        if k not in ['reproj']:
+        if k not in ["reproj"]:
             v = torch.from_numpy(np.stack(v, 0))
         else:
             v = [d[k] for d in data]
@@ -318,8 +348,8 @@ if __name__ == "__main__":
         raise ValueError("Cannot find {}".format(opt.resume))
     if os.path.isfile(opt.resume):
         try:
-            logdir = '/'.join(opt.resume.split('/')[:-1])
-            print(f'Logdir is {logdir}')
+            logdir = "/".join(opt.resume.split("/")[:-1])
+            print(f"Logdir is {logdir}")
         except ValueError:
             paths = opt.resume.split("/")
             idx = -2  # take a guess: path/to/logdir/checkpoints/model.ckpt
@@ -327,10 +357,10 @@ if __name__ == "__main__":
         ckpt = opt.resume
     elif os.path.isfile(opt.file):
         try:
-            logdir = '/'.join(opt.file.split('/')[:-5])
+            logdir = "/".join(opt.file.split("/")[:-5])
             if len(logdir) == 0:
-                logdir = '/'.join(opt.file.split('/')[:-1])
-            print(f'Logdir is {logdir}')
+                logdir = "/".join(opt.file.split("/")[:-1])
+            print(f"Logdir is {logdir}")
         except ValueError:
             paths = opt.resume.split("/")
             idx = -5  # take a guess: path/to/logdir/samples/step_num/date/numpy/*.npz
@@ -341,7 +371,7 @@ if __name__ == "__main__":
         logdir = opt.resume.rstrip("/")
         ckpt = os.path.join(logdir, "model.ckpt")
 
-    base_configs = [f'{logdir}/config.yaml']
+    base_configs = [f"{logdir}/config.yaml"]
     opt.base = base_configs
 
     configs = [OmegaConf.load(cfg) for cfg in opt.base]
@@ -352,8 +382,11 @@ if __name__ == "__main__":
     eval_mode = True
     if opt.logdir != "none":
         locallog = logdir.split(os.sep)[-1]
-        if locallog == "": locallog = logdir.split(os.sep)[-2]
-        print(f"Switching logdir from '{logdir}' to '{os.path.join(opt.logdir, locallog)}'")
+        if locallog == "":
+            locallog = logdir.split(os.sep)[-2]
+        print(
+            f"Switching logdir from '{logdir}' to '{os.path.join(opt.logdir, locallog)}'"
+        )
         logdir = os.path.join(opt.logdir, locallog)
 
     print(config)
@@ -362,7 +395,9 @@ if __name__ == "__main__":
     print(f"global step: {global_step}")
     print(75 * "=")
     print("logging to:")
-    logdir = os.path.join(logdir, "samples", f"{global_step:08}", opt.prompt.replace(' ', '_'))
+    logdir = os.path.join(
+        logdir, "samples", f"{global_step:08}", opt.prompt.replace(" ", "_")
+    )
     imglogdir = os.path.join(logdir, "img")
     pcdlogdir = os.path.join(logdir, "pcd")
     numpylogdir = os.path.join(logdir, "numpy")
@@ -377,9 +412,18 @@ if __name__ == "__main__":
     sampling_file = os.path.join(logdir, "sampling_config.yaml")
     sampling_conf = vars(opt)
 
-    with open(sampling_file, 'w') as f:
+    with open(sampling_file, "w") as f:
         yaml.dump(sampling_conf, f, default_flow_style=False)
     print(sampling_conf)
 
     text_encoder = build_text_encoder(opt.num_views, opt.apply_all)
-    run(model, text_encoder, opt.prompt, imglogdir, pcdlogdir, custom_steps=opt.custom_steps, config=config, verbose=opt.verbose)
+    run(
+        model,
+        text_encoder,
+        opt.prompt,
+        imglogdir,
+        pcdlogdir,
+        custom_steps=opt.custom_steps,
+        config=config,
+        verbose=opt.verbose,
+    )

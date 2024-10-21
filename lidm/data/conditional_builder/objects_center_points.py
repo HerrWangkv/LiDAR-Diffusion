@@ -6,8 +6,17 @@ from typing import List, Optional, Tuple, Callable
 
 from PIL import Image as pil_image, ImageDraw as pil_img_draw, ImageFont
 from more_itertools.recipes import grouper
-from .utils import COLOR_PALETTE, WHITE, GRAY_75, BLACK, additional_parameters_string, pad_list, get_circle_size, \
-    get_plot_font_size, absolute_bbox
+from .utils import (
+    COLOR_PALETTE,
+    WHITE,
+    GRAY_75,
+    BLACK,
+    additional_parameters_string,
+    pad_list,
+    get_circle_size,
+    get_plot_font_size,
+    absolute_bbox,
+)
 from ..helper_types import BoundingBox, Annotation, Image
 from torch import LongTensor, Tensor
 from torchvision.transforms import PILToTensor
@@ -24,7 +33,13 @@ def convert_pil_to_tensor(image: Image) -> Tensor:
 
 
 class ObjectsCenterPointsConditionalBuilder:
-    def __init__(self, no_object_classes: int, no_max_objects: int, no_tokens: int, num_beams: int):
+    def __init__(
+        self,
+        no_object_classes: int,
+        no_max_objects: int,
+        no_tokens: int,
+        num_beams: int,
+    ):
         self.no_object_classes = no_object_classes
         self.no_max_objects = no_max_objects
         self.no_tokens = no_tokens
@@ -78,21 +93,31 @@ class ObjectsCenterPointsConditionalBuilder:
 
     def token_pair_from_bbox(self, bbox: BoundingBox) -> Tuple:
         # return self.tokenize_coordinates(bbox[0], bbox[1]), self.tokenize_coordinates(bbox[2], bbox[3]), self.tokenize_coordinates(bbox[4], bbox[5]), self.tokenize_coordinates(bbox[6], bbox[7])
-        return self.tokenize_coordinates(bbox[0], bbox[1]), self.tokenize_coordinates(bbox[4], bbox[5])
+        return self.tokenize_coordinates(bbox[0], bbox[1]), self.tokenize_coordinates(
+            bbox[4], bbox[5]
+        )
 
-    def inverse_build(self, conditional: LongTensor) \
-            -> Tuple[List[Tuple[int, Tuple[float, float]]], Optional[BoundingBox]]:
+    def inverse_build(
+        self, conditional: LongTensor
+    ) -> Tuple[List[Tuple[int, Tuple[float, float]]], Optional[BoundingBox]]:
         conditional_list = conditional.tolist()
         table_of_content = grouper(conditional_list, self.object_descriptor_length)
         assert conditional.shape[0] == self.embedding_dim
         return [
             (object_tuple[0], self.coordinates_from_token(object_tuple[1]))
-            for object_tuple in table_of_content if object_tuple[0] != self.none
+            for object_tuple in table_of_content
+            if object_tuple[0] != self.none
         ], None
 
-    def plot(self, conditional: LongTensor, label_for_category_no: Callable[[int], str], figure_size: Tuple[int, int],
-             line_width: int = 3, font_size: Optional[int] = None) -> Tensor:
-        plot = pil_image.new('RGB', figure_size, WHITE)
+    def plot(
+        self,
+        conditional: LongTensor,
+        label_for_category_no: Callable[[int], str],
+        figure_size: Tuple[int, int],
+        line_width: int = 3,
+        font_size: Optional[int] = None,
+    ) -> Tensor:
+        plot = pil_image.new("RGB", figure_size, WHITE)
         draw = pil_img_draw.Draw(plot)
         circle_size = get_circle_size(figure_size)
         # font = ImageFont.truetype('/usr/share/fonts/truetype/lato/Lato-Regular.ttf',
@@ -103,13 +128,26 @@ class ObjectsCenterPointsConditionalBuilder:
         for (representation, (x, y)), color in zip(description, cycle(COLOR_PALETTE)):
             x_abs, y_abs = x * width, y * height
             ann = self.representation_to_annotation(representation)
-            label = label_for_category_no(ann.category_id) + ' ' + additional_parameters_string(ann)
-            ellipse_bbox = [x_abs - circle_size, y_abs - circle_size, x_abs + circle_size, y_abs + circle_size]
+            label = (
+                label_for_category_no(ann.category_id)
+                + " "
+                + additional_parameters_string(ann)
+            )
+            ellipse_bbox = [
+                x_abs - circle_size,
+                y_abs - circle_size,
+                x_abs + circle_size,
+                y_abs + circle_size,
+            ]
             draw.ellipse(ellipse_bbox, fill=color, width=0)
-            draw.text((x_abs, y_abs), label, anchor='md', fill=BLACK, font=font)
+            draw.text((x_abs, y_abs), label, anchor="md", fill=BLACK, font=font)
         if crop_coordinates is not None:
-            draw.rectangle(absolute_bbox(crop_coordinates, width, height), outline=GRAY_75, width=line_width)
-        return convert_pil_to_tensor(plot) / 127.5 - 1.
+            draw.rectangle(
+                absolute_bbox(crop_coordinates, width, height),
+                outline=GRAY_75,
+                width=line_width,
+            )
+        return convert_pil_to_tensor(plot) / 127.5 - 1.0
 
     def object_representation(self, annotation: Annotation) -> int:
         return annotation.category_id
@@ -122,25 +160,28 @@ class ObjectsCenterPointsConditionalBuilder:
             category_id=category_id,
         )
 
-    def _make_object_descriptors(self, annotations: List[Annotation]) -> List[Tuple[int, ...]]:
+    def _make_object_descriptors(
+        self, annotations: List[Annotation]
+    ) -> List[Tuple[int, ...]]:
         object_tuples = [
-            (self.object_representation(a),
-             self.tokenize_coordinates(a.center[0], a.center[1]))
+            (
+                self.object_representation(a),
+                self.tokenize_coordinates(a.center[0], a.center[1]),
+            )
             for a in annotations
         ]
         empty_tuple = (self.none, self.none)
         object_tuples = pad_list(object_tuples, empty_tuple, self.no_max_objects)
         return object_tuples
 
-    def build(self, annotations: List[Annotation]) \
-            -> LongTensor:
+    def build(self, annotations: List[Annotation]) -> LongTensor:
         if len(annotations) == 0:
-            warnings.warn('Did not receive any annotations.')
+            warnings.warn("Did not receive any annotations.")
 
         random.shuffle(annotations)
         if len(annotations) > self.no_max_objects:
-            warnings.warn('Received more annotations than allowed.')
-            annotations = annotations[:self.no_max_objects]
+            warnings.warn("Received more annotations than allowed.")
+            annotations = annotations[: self.no_max_objects]
 
         object_tuples = self._make_object_descriptors(annotations)
         flattened = [token for tuple_ in object_tuples for token in tuple_]

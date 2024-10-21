@@ -3,11 +3,15 @@ import numpy as np
 
 def get_lidar_transform(config, split):
     transform_list = []
-    if config['rotate']:
+    if config["rotate"]:
         transform_list.append(RandomRotateAligned())
-    if config['flip']:
+    if config["flip"]:
         transform_list.append(RandomFlip())
-    return Compose(transform_list) if len(transform_list) > 0 and split == 'train' else None
+    return (
+        Compose(transform_list)
+        if len(transform_list) > 0 and split == "train"
+        else None
+    )
 
 
 def get_camera_transform(config, split):
@@ -19,8 +23,12 @@ def get_camera_transform(config, split):
 
 
 def get_anno_transform(config, split):
-    if config['keypoint_drop'] and split == 'train':
-        drop_range = config['keypoint_drop_range'] if 'keypoint_drop_range' in config else (5, 60)
+    if config["keypoint_drop"] and split == "train":
+        drop_range = (
+            config["keypoint_drop_range"]
+            if "keypoint_drop_range" in config
+            else (5, 60)
+        )
         transform = RandomKeypointDrop(drop_range)
     else:
         transform = None
@@ -38,7 +46,7 @@ class Compose(object):
 
 
 class RandomFlip(object):
-    def __init__(self, p=1.):
+    def __init__(self, p=1.0):
         self.p = p
 
     def __call__(self, coord, coord1=None):
@@ -55,7 +63,7 @@ class RandomFlip(object):
 
 
 class RandomRotateAligned(object):
-    def __init__(self, rot=np.pi / 4, p=1.):
+    def __init__(self, rot=np.pi / 4, p=1.0):
         self.rot = rot
         self.p = p
 
@@ -71,7 +79,7 @@ class RandomRotateAligned(object):
 
 
 class RandomKeypointDrop(object):
-    def __init__(self, num_range=(5, 60), p=.5):
+    def __init__(self, num_range=(5, 60), p=0.5):
         self.num_range = num_range
         self.p = p
 
@@ -79,7 +87,9 @@ class RandomKeypointDrop(object):
         if np.random.rand() < self.p:
             num = len(center)
             if num > self.num_range[0]:
-                num_kept = np.random.randint(self.num_range[0], min(self.num_range[1], num))
+                num_kept = np.random.randint(
+                    self.num_range[0], min(self.num_range[1], num)
+                )
                 idx_kept = np.random.choice(num, num_kept, replace=False)
                 center, category = center[idx_kept], category[idx_kept]
         return center, category

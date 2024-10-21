@@ -13,39 +13,44 @@ from ..utils.misc_utils import instantiate_from_config
 
 
 class VQModel(pl.LightningModule):
-    def __init__(self,
-                 ddconfig,
-                 n_embed,
-                 embed_dim,
-                 lossconfig=None,
-                 ckpt_path=None,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None,
-                 monitor=None,
-                 batch_resize_range=None,
-                 scheduler_config=None,
-                 lr_g_factor=1.0,
-                 remap=None,
-                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw
-                 use_ema=False,
-                 lib_name='ldm',
-                 use_mask=False,
-                 **kwargs
-                 ):
+    def __init__(
+        self,
+        ddconfig,
+        n_embed,
+        embed_dim,
+        lossconfig=None,
+        ckpt_path=None,
+        ignore_keys=[],
+        image_key="image",
+        colorize_nlabels=None,
+        monitor=None,
+        batch_resize_range=None,
+        scheduler_config=None,
+        lr_g_factor=1.0,
+        remap=None,
+        sane_index_shape=False,  # tell vector quantizer to return indices as bhw
+        use_ema=False,
+        lib_name="ldm",
+        use_mask=False,
+        **kwargs,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_embed = n_embed
         self.image_key = image_key
         self.use_mask = use_mask
-        model_lib = eval(f'model_{lib_name}')
+        model_lib = eval(f"model_{lib_name}")
         self.encoder = model_lib.Encoder(**ddconfig)
         self.decoder = model_lib.Decoder(**ddconfig)
         if lossconfig is not None:
             self.loss = instantiate_from_config(lossconfig)
-        self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
-                                        remap=remap,
-                                        sane_index_shape=sane_index_shape)
+        self.quantize = VectorQuantizer(
+            n_embed,
+            embed_dim,
+            beta=0.25,
+            remap=remap,
+            sane_index_shape=sane_index_shape,
+        )
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         if colorize_nlabels is not None:
@@ -55,7 +60,9 @@ class VQModel(pl.LightningModule):
             self.monitor = monitor
         self.batch_resize_range = batch_resize_range
         if self.batch_resize_range is not None:
-            print(f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}.")
+            print(
+                f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}."
+            )
 
         self.use_ema = use_ema
         if self.use_ema:
@@ -91,7 +98,9 @@ class VQModel(pl.LightningModule):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
+        print(
+            f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys"
+        )
         if len(missing) > 0:
             print(f"Missing Keys: {missing}")
             print(f"Unexpected Keys: {unexpected}")
@@ -140,14 +149,16 @@ class VQModel(pl.LightningModule):
                 # do the first few batches with max size to avoid later oom
                 new_resize = upper_size
             else:
-                new_resize = np.random.choice(np.arange(lower_size, upper_size + 16, 16))
+                new_resize = np.random.choice(
+                    np.arange(lower_size, upper_size + 16, 16)
+                )
             if new_resize != x.shape[2]:
                 x = F.interpolate(x, size=new_resize, mode="bicubic")
             x = x.detach()
         return x
 
     def get_mask(self, batch):
-        mask = batch['mask']
+        mask = batch["mask"]
         # if len(mask.shape) == 3:
         #     mask = mask[..., None]
         return mask
@@ -161,18 +172,37 @@ class VQModel(pl.LightningModule):
 
         if optimizer_idx == 0:
             # autoencoder
-            aeloss, log_dict_ae = self.loss(qloss, x, x_rec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train",
-                                            predicted_indices=None, masks=m)
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+            aeloss, log_dict_ae = self.loss(
+                qloss,
+                x,
+                x_rec,
+                optimizer_idx,
+                self.global_step,
+                last_layer=self.get_last_layer(),
+                split="train",
+                predicted_indices=None,
+                masks=m,
+            )
+            self.log_dict(
+                log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True
+            )
             return aeloss
 
         if optimizer_idx == 1:
             # discriminator
-            discloss, log_dict_disc = self.loss(qloss, x, x_rec, optimizer_idx, self.global_step,
-                                                last_layer=self.get_last_layer(), split="train",
-                                                masks=m)
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+            discloss, log_dict_disc = self.loss(
+                qloss,
+                x,
+                x_rec,
+                optimizer_idx,
+                self.global_step,
+                last_layer=self.get_last_layer(),
+                split="train",
+                masks=m,
+            )
+            self.log_dict(
+                log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True
+            )
             return discloss
 
     def validation_step(self, batch, batch_idx):
@@ -186,26 +216,48 @@ class VQModel(pl.LightningModule):
         x = self.get_input(batch, self.image_key)
         m = self.get_mask(batch) if self.use_mask else None
         xrec, qloss, ind = self(x, return_pred_indices=True)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0,
-                                        self.global_step,
-                                        last_layer=self.get_last_layer(),
-                                        split="val" + suffix,
-                                        predicted_indices=None,
-                                        masks=m
-                                        )
+        aeloss, log_dict_ae = self.loss(
+            qloss,
+            x,
+            xrec,
+            0,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="val" + suffix,
+            predicted_indices=None,
+            masks=m,
+        )
 
-        discloss, log_dict_disc = self.loss(qloss, x, xrec, 1,
-                                            self.global_step,
-                                            last_layer=self.get_last_layer(),
-                                            split="val" + suffix,
-                                            predicted_indices=None,
-                                            masks=m
-                                            )
+        discloss, log_dict_disc = self.loss(
+            qloss,
+            x,
+            xrec,
+            1,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="val" + suffix,
+            predicted_indices=None,
+            masks=m,
+        )
         rec_loss = log_dict_ae[f"val{suffix}/rec_loss"]
-        self.log(f"val{suffix}/rec_loss", rec_loss,
-                 prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
-        self.log(f"val{suffix}/aeloss", aeloss,
-                 prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
+        self.log(
+            f"val{suffix}/rec_loss",
+            rec_loss,
+            prog_bar=True,
+            logger=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log(
+            f"val{suffix}/aeloss",
+            aeloss,
+            prog_bar=True,
+            logger=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         del log_dict_ae[f"val{suffix}/rec_loss"]
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
@@ -216,14 +268,18 @@ class VQModel(pl.LightningModule):
         lr_g = self.lr_g_factor * self.learning_rate
         # print("lr_d", lr_d)
         # print("lr_g", lr_g)
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters()) +
-                                  list(self.decoder.parameters()) +
-                                  list(self.quantize.parameters()) +
-                                  list(self.quant_conv.parameters()) +
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr_g, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr_d, betas=(0.5, 0.9))
+        opt_ae = torch.optim.Adam(
+            list(self.encoder.parameters())
+            + list(self.decoder.parameters())
+            + list(self.quantize.parameters())
+            + list(self.quant_conv.parameters())
+            + list(self.post_quant_conv.parameters()),
+            lr=lr_g,
+            betas=(0.5, 0.9),
+        )
+        opt_disc = torch.optim.Adam(
+            self.loss.discriminator.parameters(), lr=lr_d, betas=(0.5, 0.9)
+        )
 
         if self.scheduler_config is not None:
             scheduler = instantiate_from_config(self.scheduler_config)
@@ -231,14 +287,14 @@ class VQModel(pl.LightningModule):
             print("Setting up LambdaLR scheduler...")
             scheduler = [
                 {
-                    'scheduler': LambdaLR(opt_ae, lr_lambda=scheduler.schedule),
-                    'interval': 'step',
-                    'frequency': 1
+                    "scheduler": LambdaLR(opt_ae, lr_lambda=scheduler.schedule),
+                    "interval": "step",
+                    "frequency": 1,
                 },
                 {
-                    'scheduler': LambdaLR(opt_disc, lr_lambda=scheduler.schedule),
-                    'interval': 'step',
-                    'frequency': 1
+                    "scheduler": LambdaLR(opt_disc, lr_lambda=scheduler.schedule),
+                    "interval": "step",
+                    "frequency": 1,
                 },
             ]
             return [opt_ae, opt_disc], scheduler
@@ -257,9 +313,9 @@ class VQModel(pl.LightningModule):
             return log
         xrec, _ = self(x)
         if self.use_mask:
-            mask = xrec[:, 1:2] < 0.
+            mask = xrec[:, 1:2] < 0.0
             xrec = xrec[:, 0:1]
-            xrec[mask] = -1.
+            xrec[mask] = -1.0
         log["inputs"] = x
         log["reconstructions"] = xrec
         if plot_ema:
@@ -273,7 +329,7 @@ class VQModel(pl.LightningModule):
         if not hasattr(self, "colorize"):
             self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
         x = F.conv2d(x, weight=self.colorize)
-        x = 2. * (x - x.min()) / (x.max() - x.min()) - 1.
+        x = 2.0 * (x - x.min()) / (x.max() - x.min()) - 1.0
         return x
 
 
@@ -296,29 +352,30 @@ class VQModelInterface(VQModel):
         quant = self.post_quant_conv(quant)
         dec = self.decoder(quant)
         if self.use_mask:
-            mask = dec[:, 1:2] < 0.
+            mask = dec[:, 1:2] < 0.0
             dec = dec[:, 0:1]
-            dec[mask] = -1.
+            dec[mask] = -1.0
         return dec
 
 
 class AutoencoderKL(pl.LightningModule):
-    def __init__(self,
-                 ddconfig,
-                 lossconfig,
-                 embed_dim,
-                 ckpt_path=None,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None,
-                 monitor=None,
-                 lib_name='ldm',
-                 use_mask=False
-                 ):
+    def __init__(
+        self,
+        ddconfig,
+        lossconfig,
+        embed_dim,
+        ckpt_path=None,
+        ignore_keys=[],
+        image_key="image",
+        colorize_nlabels=None,
+        monitor=None,
+        lib_name="ldm",
+        use_mask=False,
+    ):
         super().__init__()
         self.image_key = image_key
         self.use_mask = use_mask
-        model_lib = eval(f'model_{lib_name}')
+        model_lib = eval(f"model_{lib_name}")
         self.encoder = model_lib.Encoder(**ddconfig)
         self.decoder = model_lib.Decoder(**ddconfig)
         self.loss = instantiate_from_config(lossconfig)
@@ -377,28 +434,74 @@ class AutoencoderKL(pl.LightningModule):
 
         if optimizer_idx == 0:
             # train encoder+decoder+logvar
-            aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-            self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False)
+            aeloss, log_dict_ae = self.loss(
+                inputs,
+                reconstructions,
+                posterior,
+                optimizer_idx,
+                self.global_step,
+                last_layer=self.get_last_layer(),
+                split="train",
+            )
+            self.log(
+                "aeloss",
+                aeloss,
+                prog_bar=True,
+                logger=True,
+                on_step=True,
+                on_epoch=True,
+            )
+            self.log_dict(
+                log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False
+            )
             return aeloss
 
         if optimizer_idx == 1:
             # train the discriminator
-            discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, optimizer_idx, self.global_step,
-                                                last_layer=self.get_last_layer(), split="train")
+            discloss, log_dict_disc = self.loss(
+                inputs,
+                reconstructions,
+                posterior,
+                optimizer_idx,
+                self.global_step,
+                last_layer=self.get_last_layer(),
+                split="train",
+            )
 
-            self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False)
+            self.log(
+                "discloss",
+                discloss,
+                prog_bar=True,
+                logger=True,
+                on_step=True,
+                on_epoch=True,
+            )
+            self.log_dict(
+                log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False
+            )
             return discloss
 
     def validation_step(self, batch, batch_idx):
         inputs = self.get_input(batch, self.image_key)
         reconstructions, posterior = self(inputs)
-        aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
-                                        last_layer=self.get_last_layer(), split="val")
-        discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
+        aeloss, log_dict_ae = self.loss(
+            inputs,
+            reconstructions,
+            posterior,
+            0,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="val",
+        )
+        discloss, log_dict_disc = self.loss(
+            inputs,
+            reconstructions,
+            posterior,
+            1,
+            self.global_step,
+            last_layer=self.get_last_layer(),
+            split="val",
+        )
 
         self.log("val/rec_loss", log_dict_ae["val/rec_loss"])
         self.log_dict(log_dict_ae)
@@ -407,13 +510,17 @@ class AutoencoderKL(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters()) +
-                                  list(self.decoder.parameters()) +
-                                  list(self.quant_conv.parameters()) +
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr, betas=(0.5, 0.9))
+        opt_ae = torch.optim.Adam(
+            list(self.encoder.parameters())
+            + list(self.decoder.parameters())
+            + list(self.quant_conv.parameters())
+            + list(self.post_quant_conv.parameters()),
+            lr=lr,
+            betas=(0.5, 0.9),
+        )
+        opt_disc = torch.optim.Adam(
+            self.loss.discriminator.parameters(), lr=lr, betas=(0.5, 0.9)
+        )
         return [opt_ae, opt_disc], []
 
     def get_last_layer(self):
@@ -441,7 +548,7 @@ class AutoencoderKL(pl.LightningModule):
         if not hasattr(self, "colorize"):
             self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
         x = F.conv2d(x, weight=self.colorize)
-        x = 2. * (x - x.min()) / (x.max() - x.min()) - 1.
+        x = 2.0 * (x - x.min()) / (x.max() - x.min()) - 1.0
         return x
 
 

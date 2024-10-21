@@ -1,7 +1,7 @@
 import math
 import sys
 
-sys.path.append('./')
+sys.path.append("./")
 
 import os, argparse, glob, datetime, yaml
 import torch
@@ -20,36 +20,41 @@ from lidm.eval.eval_utils import evaluate
 
 # remove annoying user warnings
 import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 try:
     import open3d as o3d
+
     ALLOW_POST_PROCESS = True
 except ImportError:
     ALLOW_POST_PROCESS = False
 
-DATASET2METRICS = {'kitti': ['frid', 'fsvd', 'fpvd', 'cd', 'emd'], 'nuscenes': ['fsvd', 'fpvd', 'cd', 'emd']}
-DATASET2TYPE = {'kitti': '64', 'nuscenes': '32'}
+DATASET2METRICS = {
+    "kitti": ["frid", "fsvd", "fpvd", "cd", "emd"],
+    "nuscenes": ["fsvd", "fpvd", "cd", "emd"],
+}
+DATASET2TYPE = {"kitti": "64", "nuscenes": "32"}
 
-custom_to_range = lambda x: (x * 255.).clamp(0, 255).floor() / 255.
+custom_to_range = lambda x: (x * 255.0).clamp(0, 255).floor() / 255.0
 
 
 def custom_to_pcd(x, config, rgb=None):
     x = x.squeeze().detach().cpu().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
     if rgb is not None:
         rgb = rgb.squeeze().detach().cpu().numpy()
-        rgb = (np.clip(rgb, -1., 1.) + 1.) / 2.
+        rgb = (np.clip(rgb, -1.0, 1.0) + 1.0) / 2.0
         rgb = rgb.transpose(1, 2, 0)
-    xyz, rgb, _ = range2pcd(x, color=rgb, **config['data']['params']['dataset'])
+    xyz, rgb, _ = range2pcd(x, color=rgb, **config["data"]["params"]["dataset"])
 
     return xyz, rgb
 
 
 def custom_to_pil(x):
     x = x.detach().cpu().squeeze().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
     x = (255 * x).astype(np.uint8)
 
     if x.ndim == 3:
@@ -61,8 +66,10 @@ def custom_to_pil(x):
 
 def custom_to_np(x):
     x = x.detach().cpu().squeeze().numpy()
-    x = (np.clip(x, -1., 1.) + 1.) / 2.
-    x = x.astype(np.float32)  # NOTE: use predicted continuous depth instead of np.uint8 depth
+    x = (np.clip(x, -1.0, 1.0) + 1.0) / 2.0
+    x = x.astype(
+        np.float32
+    )  # NOTE: use predicted continuous depth instead of np.uint8 depth
     return x
 
 
@@ -83,21 +90,32 @@ def logs2pil(logs, keys=["sample"]):
     return imgs
 
 
-def run(model, dataloader, imglogdir, pcdlogdir, nplog=None, config=None, verbose=False):
+def run(
+    model, dataloader, imglogdir, pcdlogdir, nplog=None, config=None, verbose=False
+):
     tstart = time.time()
-    n_saved = len(glob.glob(os.path.join(imglogdir, '*.png')))
+    n_saved = len(glob.glob(os.path.join(imglogdir, "*.png")))
 
     all_samples, all_gt = [], []
     print(f"Running conditional sampling")
     for batch in tqdm(dataloader, desc="Reconstructing Batches"):
-        all_gt.extend(batch['reproj'])
-        N = len(batch['reproj'])
+        all_gt.extend(batch["reproj"])
+        N = len(batch["reproj"])
         logs = model.log_images(batch)
-        n_saved = save_logs(logs, imglogdir, pcdlogdir, N, n_saved=n_saved, config=config)
-        all_samples.extend([custom_to_pcd(img, config)[0].astype(np.float32) for img in logs["reconstructions"]])
+        n_saved = save_logs(
+            logs, imglogdir, pcdlogdir, N, n_saved=n_saved, config=config
+        )
+        all_samples.extend(
+            [
+                custom_to_pcd(img, config)[0].astype(np.float32)
+                for img in logs["reconstructions"]
+            ]
+        )
     joblib.dump(all_samples, os.path.join(nplog, f"samples.pcd"))
 
-    print(f"Sampling of {n_saved} images finished in {(time.time() - tstart) / 60.:.2f} minutes.")
+    print(
+        f"Sampling of {n_saved} images finished in {(time.time() - tstart) / 60.:.2f} minutes."
+    )
     return all_samples, all_gt
 
 
@@ -113,7 +131,7 @@ def save_logs(logs, imglogdir, pcdlogdir, num, n_saved=0, key_list=None, config=
             # save as point cloud
             xyz, rgb = custom_to_pcd(x, config)
             pcdpath = os.path.join(pcdlogdir, f"{k}_{n_saved:06}.txt")
-            np.savetxt(pcdpath, np.hstack([xyz, rgb]), fmt='%.3f')
+            np.savetxt(pcdpath, np.hstack([xyz, rgb]), fmt="%.3f")
         n_saved += 1
     return n_saved
 
@@ -126,49 +144,30 @@ def get_parser():
         type=str,
         nargs="?",
         help="load from logdir or checkpoint in logdir",
-        default="none"
+        default="none",
     )
     parser.add_argument(
-        "-l",
-        "--logdir",
-        type=str,
-        nargs="?",
-        help="extra logdir",
-        default="none"
+        "-l", "--logdir", type=str, nargs="?", help="extra logdir", default="none"
     )
     parser.add_argument(
-        "-b",
-        "--batch_size",
-        type=int,
-        nargs="?",
-        help="the bs",
-        default=32
+        "-b", "--batch_size", type=int, nargs="?", help="the bs", default=32
     )
+    parser.add_argument("-f", "--file", help="the file path of samples", default=None)
     parser.add_argument(
-        "-f",
-        "--file",
-        help="the file path of samples",
-        default=None
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        type=int,
-        help="the numpy file path",
-        default=1000
+        "-s", "--seed", type=int, help="the numpy file path", default=1000
     )
     parser.add_argument(
         "-d",
         "--dataset",
         type=str,
         help="dataset name [nuscenes, kitti]",
-        required=True
+        required=True,
     )
     parser.add_argument(
         "-v",
         "--verbose",
         default=False,
-        action='store_true',
+        action="store_true",
         help="print status?",
     )
     return parser
@@ -200,7 +199,7 @@ def test_collate_fn(data):
     keys = data[0].keys()
     for k in keys:
         v = [d[k] for d in data]
-        if k not in ['reproj', 'raw']:
+        if k not in ["reproj", "raw"]:
             v = torch.from_numpy(np.stack(v, 0))
         else:
             v = [d[k] for d in data]
@@ -222,8 +221,8 @@ if __name__ == "__main__":
         raise FileNotFoundError
     if os.path.isfile(opt.resume):
         try:
-            logdir = '/'.join(opt.resume.split('/')[:-1])
-            print(f'Logdir is {logdir}')
+            logdir = "/".join(opt.resume.split("/")[:-1])
+            print(f"Logdir is {logdir}")
         except ValueError:
             paths = opt.resume.split("/")
             idx = -2  # take a guess: path/to/logdir/checkpoints/model.ckpt
@@ -231,10 +230,10 @@ if __name__ == "__main__":
         ckpt = opt.resume
     elif os.path.isfile(opt.file):
         try:
-            logdir = '/'.join(opt.file.split('/')[:-5])
+            logdir = "/".join(opt.file.split("/")[:-5])
             if len(logdir) == 0:
-                logdir = '/'.join(opt.file.split('/')[:-1])
-            print(f'Logdir is {logdir}')
+                logdir = "/".join(opt.file.split("/")[:-1])
+            print(f"Logdir is {logdir}")
         except ValueError:
             paths = opt.resume.split("/")
             idx = -5  # take a guess: path/to/logdir/samples/step_num/date/numpy/*.npz
@@ -245,7 +244,7 @@ if __name__ == "__main__":
         logdir = opt.resume.rstrip("/")
         ckpt = os.path.join(logdir, "model.ckpt")
 
-    base_configs = [f'{logdir}/config.yaml']
+    base_configs = [f"{logdir}/config.yaml"]
     opt.base = base_configs
 
     configs = [OmegaConf.load(cfg) for cfg in opt.base]
@@ -256,8 +255,11 @@ if __name__ == "__main__":
     eval_mode = True
     if opt.logdir != "none":
         locallog = logdir.split(os.sep)[-1]
-        if locallog == "": locallog = logdir.split(os.sep)[-2]
-        print(f"Switching logdir from '{logdir}' to '{os.path.join(opt.logdir, locallog)}'")
+        if locallog == "":
+            locallog = logdir.split(os.sep)[-2]
+        print(
+            f"Switching logdir from '{logdir}' to '{os.path.join(opt.logdir, locallog)}'"
+        )
         logdir = os.path.join(opt.logdir, locallog)
 
     print(config)
@@ -282,21 +284,39 @@ if __name__ == "__main__":
         sampling_file = os.path.join(logdir, "sampling_config.yaml")
         sampling_conf = vars(opt)
 
-        with open(sampling_file, 'w') as f:
+        with open(sampling_file, "w") as f:
             yaml.dump(sampling_conf, f, default_flow_style=False)
         print(sampling_conf)
 
         # traverse all validation data
-        data_config = config['data']['params']['validation']
-        data_config['params'].update({'dataset_config': config['data']['params']['dataset'],
-                                      'aug_config': config['data']['params']['aug'], 'return_pcd': True})
+        data_config = config["data"]["params"]["validation"]
+        data_config["params"].update(
+            {
+                "dataset_config": config["data"]["params"]["dataset"],
+                "aug_config": config["data"]["params"]["aug"],
+                "return_pcd": True,
+            }
+        )
         dataset = instantiate_from_config(data_config)
-        dataloader = DataLoader(dataset, batch_size=opt.batch_size, num_workers=8, shuffle=False, drop_last=False,
-                                collate_fn=test_collate_fn)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=opt.batch_size,
+            num_workers=8,
+            shuffle=False,
+            drop_last=False,
+            collate_fn=test_collate_fn,
+        )
 
         # settings
-        all_samples, all_gt = run(model, dataloader, imglogdir, pcdlogdir, nplog=numpylogdir,
-                                  config=config, verbose=opt.verbose)
+        all_samples, all_gt = run(
+            model,
+            dataloader,
+            imglogdir,
+            pcdlogdir,
+            nplog=numpylogdir,
+            config=config,
+            verbose=opt.verbose,
+        )
 
         # recycle gpu memory
         del model
@@ -306,16 +326,27 @@ if __name__ == "__main__":
         all_samples = [sample.astype(np.float32) for sample in all_samples]
 
         # traverse all validation data
-        data_config = config['data']['params']['validation']
-        data_config['params'].update({'dataset_config': config['data']['params']['dataset'],
-                                      'aug_config': config['data']['params']['aug'], 'return_pcd': True})
+        data_config = config["data"]["params"]["validation"]
+        data_config["params"].update(
+            {
+                "dataset_config": config["data"]["params"]["dataset"],
+                "aug_config": config["data"]["params"]["aug"],
+                "return_pcd": True,
+            }
+        )
         dataset = instantiate_from_config(data_config)
         test = dataset[0]
-        dataloader = DataLoader(dataset, batch_size=64, num_workers=8, shuffle=False, drop_last=False,
-                                collate_fn=test_collate_fn)
+        dataloader = DataLoader(
+            dataset,
+            batch_size=64,
+            num_workers=8,
+            shuffle=False,
+            drop_last=False,
+            collate_fn=test_collate_fn,
+        )
         all_gt = []
         for batch in dataloader:
-            all_gt.extend(batch['reproj'])
+            all_gt.extend(batch["reproj"])
 
     # evaluation
     metrics, data_type = DATASET2METRICS[opt.dataset], DATASET2TYPE[opt.dataset]

@@ -26,8 +26,10 @@ def pcd2coord2d(pcd, fov, depth_range, labels=None):
     pitch = np.arcsin(scan_z / depth)
 
     # get projections in image coords
-    proj_x = np.clip(0.5 * (yaw / np.pi + 1.0), 0., 1.)  # in [0.0, 1.0]
-    proj_y = np.clip(1.0 - (pitch + abs(fov_down)) / fov_range, 0., 1.)  # in [0.0, 1.0]
+    proj_x = np.clip(0.5 * (yaw / np.pi + 1.0), 0.0, 1.0)  # in [0.0, 1.0]
+    proj_y = np.clip(
+        1.0 - (pitch + abs(fov_down)) / fov_range, 0.0, 1.0
+    )  # in [0.0, 1.0]
     proj_coord2d = np.stack([proj_x, proj_y], axis=-1)
 
     if labels is not None:
@@ -67,8 +69,12 @@ def pcd2range(pcd, size, fov, depth_range, remission=None, labels=None, **kwargs
     proj_y *= size[0]  # in [0.0, H]
 
     # round and clamp for use as index
-    proj_x = np.maximum(0, np.minimum(size[1] - 1, np.floor(proj_x))).astype(np.int32)  # in [0,W-1]
-    proj_y = np.maximum(0, np.minimum(size[0] - 1, np.floor(proj_y))).astype(np.int32)  # in [0,H-1]
+    proj_x = np.maximum(0, np.minimum(size[1] - 1, np.floor(proj_x))).astype(
+        np.int32
+    )  # in [0,W-1]
+    proj_y = np.maximum(0, np.minimum(size[0] - 1, np.floor(proj_y))).astype(
+        np.int32
+    )  # in [0,H-1]
 
     # order in decreasing depth
     order = np.argsort(depth)[::-1]
@@ -94,7 +100,16 @@ def pcd2range(pcd, size, fov, depth_range, remission=None, labels=None, **kwargs
     return proj_range, proj_feature
 
 
-def range2pcd(range_img, fov, depth_range, depth_scale, log_scale=True, label=None, color=None, **kwargs):
+def range2pcd(
+    range_img,
+    fov,
+    depth_range,
+    depth_scale,
+    log_scale=True,
+    label=None,
+    color=None,
+    **kwargs
+):
     # laser parameters
     size = range_img.shape
     fov_up = fov[0] / 180.0 * np.pi  # field of view up in rad
@@ -144,7 +159,7 @@ def range2xyz(range_img, fov, depth_range, depth_scale, log_scale=True, **kwargs
 
     # inverse transform from depth
     if log_scale:
-        depth = (np.exp2(range_img * depth_scale) - 1)
+        depth = np.exp2(range_img * depth_scale) - 1
     else:
         depth = range_img
 
@@ -180,7 +195,10 @@ def pcd2bev(pcd, x_range, y_range, z_range, resolution, **kwargs):
     bev_y = np.floor((pcd[:, 1] - y_range[0]) / resolution).astype(np.int32)
 
     # 2D bev grid
-    bev_shape = (math.ceil((x_range[1] - x_range[0]) // resolution), math.ceil((y_range[1] - y_range[0]) // resolution))
+    bev_shape = (
+        math.ceil((x_range[1] - x_range[0]) // resolution),
+        math.ceil((y_range[1] - y_range[0]) // resolution),
+    )
     bev_grid = np.zeros(bev_shape, dtype=np.float64)
 
     # populate the BEV grid with bev coords
@@ -189,7 +207,7 @@ def pcd2bev(pcd, x_range, y_range, z_range, resolution, **kwargs):
     return bev_grid
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # test = np.loadtxt('test_range.txt')
     # pcd, _, _ = range2pcd(test, (32, 1024), (10, -30))
     # np.savetxt('test_pcd.txt', pcd, fmt='%.4f')
@@ -201,6 +219,7 @@ if __name__ == '__main__':
     # plt.savefig('test.png', dpi=300, bbox_inches='tight', pad_inches=0, transparent=True)
 
     from PIL import Image
-    img = Image.open('assets/kitti/range.png')
-    img.convert('L')
-    img = np.array(img) / 255.
+
+    img = Image.open("assets/kitti/range.png")
+    img.convert("L")
+    img = np.array(img) / 255.0
