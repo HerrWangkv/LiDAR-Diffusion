@@ -659,7 +659,7 @@ if __name__ == "__main__":
                 "target": "pytorch_lightning.loggers.WandbLogger",
                 "params": {
                     "project": f"lidar_diffusion_{dataset_name}",
-                    "entity": "hancyran",
+                    "entity": "kaiwen",
                     "name": nowname,
                     "save_dir": logdir,
                     "offline": opt.debug,
