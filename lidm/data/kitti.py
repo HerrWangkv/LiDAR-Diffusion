@@ -212,12 +212,12 @@ class SemanticKITTIBase(KITTIBase):
 
 class SemanticKITTITrain(SemanticKITTIBase):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset/SemanticKITTI", split="train", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/SemanticKITTI", split="train", **kwargs)
 
 
 class SemanticKITTIValidation(SemanticKITTIBase):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset/SemanticKITTI", split="val", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/SemanticKITTI", split="val", **kwargs)
 
 
 class KITTI360Base(KITTIBase):
@@ -273,12 +273,12 @@ class KITTI360Base(KITTIBase):
 
 class KITTI360Train(KITTI360Base):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset/KITTI-360", split="train", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/KITTI-360", split="train", **kwargs)
 
 
 class KITTI360Validation(KITTI360Base):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset/KITTI-360", split="val", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/KITTI-360", split="val", **kwargs)
 
 
 class AnnotatedKITTI360Base(Annotated3DObjectsDataset, KITTI360Base):
@@ -418,14 +418,14 @@ class AnnotatedKITTI360Base(Annotated3DObjectsDataset, KITTI360Base):
 class AnnotatedKITTI360Train(AnnotatedKITTI360Base):
     def __init__(self, **kwargs):
         super().__init__(
-            data_root="./dataset/KITTI-360", split="train", cats=BBOX_CATS, **kwargs
+            data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/KITTI-360", split="train", cats=BBOX_CATS, **kwargs
         )
 
 
 class AnnotatedKITTI360Validation(AnnotatedKITTI360Base):
     def __init__(self, **kwargs):
         super().__init__(
-            data_root="./dataset/KITTI-360", split="train", cats=BBOX_CATS, **kwargs
+            data_root="/mrtstorage/datasets_tmp/kitti_semantic_360/KITTI-360", split="train", cats=BBOX_CATS, **kwargs
         )
 
 
@@ -468,9 +468,9 @@ class KITTIImageBase(KITTIBase):
 
 class KITTIImageTrain(KITTIImageBase):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset", split="train", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360", split="train", **kwargs)
 
 
 class KITTIImageValidation(KITTIImageBase):
     def __init__(self, **kwargs):
-        super().__init__(data_root="./dataset", split="val", **kwargs)
+        super().__init__(data_root="/mrtstorage/datasets_tmp/kitti_semantic_360", split="val", **kwargs)
