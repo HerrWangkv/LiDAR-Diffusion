@@ -189,7 +189,7 @@ def load_model(config, ckpt):
     else:
         pl_sd = {"state_dict": None}
         global_step = None
-    del config.model.params.lossconfig
+    # del config.model.params.lossconfig
     model = load_model_from_config(config.model, pl_sd["state_dict"])
     return model, global_step
 
