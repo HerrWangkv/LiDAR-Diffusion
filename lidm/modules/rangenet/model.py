@@ -385,11 +385,13 @@ class Model(nn.Module):
 
     def load_pretrained_weights(self, path):
         w_dict = torch.load(
-            path + "/backbone", map_location=lambda storage, loc: storage
+            path + "/backbone.zip",
+            map_location=lambda storage, loc: storage,
         )
         self.backbone.load_state_dict(w_dict, strict=True)
         w_dict = torch.load(
-            path + "/segmentation_decoder", map_location=lambda storage, loc: storage
+            path + "/segmentation_decoder.zip",
+            map_location=lambda storage, loc: storage,
         )
         self.decoder.load_state_dict(w_dict, strict=True)
 
